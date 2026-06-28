@@ -1,0 +1,37 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #0a0a0a;
+  --muted: #6b6b6b;
+  --border: #e5e5e5;
+
+  /* Verdict semantics — the only color allowed to carry meaning in the UI */
+  --verdict-invest: #1a7f4b;
+  --verdict-invest-bg: #ecf7f0;
+  --verdict-watch: #b5790a;
+  --verdict-watch-bg: #fcf3e3;
+  --verdict-pass: #b3261e;
+  --verdict-pass-bg: #fbeceb;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-border: var(--border);
+  --color-verdict-invest: var(--verdict-invest);
+  --color-verdict-invest-bg: var(--verdict-invest-bg);
+  --color-verdict-watch: var(--verdict-watch);
+  --color-verdict-watch-bg: var(--verdict-watch-bg);
+  --color-verdict-pass: var(--verdict-pass);
+  --color-verdict-pass-bg: var(--verdict-pass-bg);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+}
