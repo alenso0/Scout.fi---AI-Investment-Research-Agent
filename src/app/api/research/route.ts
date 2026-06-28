@@ -9,11 +9,11 @@ import {
   setCachedResult,
 } from "@/lib/server/guard";
 
-// Gemini free tier is 5 RPM (measured live) and a run makes ~6 calls. Measured
-// end-to-end: a cold run can take up to ~3 minutes once retry/backoff (see
-// src/lib/clients/gemini.ts) absorbs the rate limit. Requires Fluid Compute
-// on Vercel Hobby to get past the default 60s cap.
-export const maxDuration = 280;
+// Gemini's free tier on this account caps at 20 requests/day; src/lib/clients/llm.ts
+// falls back to Groq automatically when that's hit, so runs no longer wait out
+// a backoff window — this just leaves headroom for normal API latency.
+// Requires Fluid Compute on Vercel Hobby to get past the default 60s cap.
+export const maxDuration = 90;
 
 const NODE_LABELS: Record<string, string> = {
   resolveEntityStep: "Resolving company…",

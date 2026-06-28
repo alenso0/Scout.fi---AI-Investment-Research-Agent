@@ -1,5 +1,5 @@
 import { SystemMessage, HumanMessage } from "@langchain/core/messages";
-import { invokeFlash } from "../../clients/gemini";
+import { invokeFlash } from "../../clients/llm";
 import type { TavilySearchResult } from "../../clients/tavily";
 import type { Citation, ResearchSection } from "../state";
 

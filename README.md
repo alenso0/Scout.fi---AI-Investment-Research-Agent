@@ -48,12 +48,13 @@ It only covers **public, ticker-bearing companies** by design (see
    Open http://localhost:3000, type a company name (e.g. `Tesla`), hit
    Research.
 
-   **A run can take 15 seconds to ~2 minutes.** Gemini's free tier is
-   rate-limited (measured live: `gemini-2.5-flash` is much more workable than
-   the `-latest` alias — see below); the app retries through rate limits
-   automatically rather than failing, but that means waiting, not erroring,
-   is the expected slow-path behavior. The live progress steps tell you
-   what's happening throughout.
+   **A run can take 15 seconds to a few minutes**, and **the free tier is
+   good for roughly 3 full runs per day** on one Google account (measured
+   live — see [Example runs](#example-runs)). The app retries through
+   rate limits automatically rather than failing outright, so waiting,
+   not erroring, is the expected slow-path behavior; the live progress
+   steps tell you what's happening throughout. If you hit the daily cap,
+   either wait for the Pacific-time reset or use a billed key (pennies/run).
 
 4. **Deploy (optional, bonus points):**
    ```bash
@@ -146,13 +147,17 @@ per-dimension bars and rationale, not just the final label.
   everything, including the critic/scoring/synthesis steps that would
   ideally use a stronger model.
 
-- **`gemini-2.5-flash`, not `gemini-flash-latest`.** This was a real bug I
-  caught by actually running the pipeline, not by reading docs: the
-  `-latest` alias resolved to `gemini-3.5-flash`, a preview model capped at
-  **20 requests/day** on the free tier — exhausted after a couple of test
-  runs. Pinning to the established `gemini-2.5-flash` model uses a separate,
-  far more workable quota. Lesson: alias model IDs are a latent footgun for
-  anything that needs predictable quota behavior.
+- **`gemini-2.5-flash`, not `gemini-flash-latest`.** Caught by actually
+  running the pipeline, not by reading docs: the `-latest` alias resolved to
+  `gemini-3.5-flash`, a preview model with a 5 RPM ceiling. Switching to the
+  established `gemini-2.5-flash` model fixed the per-minute throttling.
+  Lesson learned the hard way, though: **this Google account's free tier
+  caps at a flat 20 requests/day, and that cap turned out to apply to both
+  models** — switching models bought a fresh per-minute budget, not a fresh
+  daily one. See the Zomato example below for what that looks like in
+  practice. Alias model IDs are still a footgun (you don't know which model
+  you're actually quota-limited against until you read the error), but the
+  daily cap is the bigger real constraint to plan around on this stack.
 
 - **Retry-with-backoff around every Gemini call** (`src/lib/clients/gemini.ts`),
   parsing the `retryDelay` hint Google's 429 response actually returns,
@@ -210,9 +215,38 @@ a real `503 (high demand)` from Gemini mid-run. Both failures were caught,
 recorded, and the run still produced a complete memo — momentum scored
 conservatively and bear case fell back to unavailable, rather than the
 whole request failing. Full raw output (errors included) is in
-`docs/example-runs/tesla.json`.
+[`docs/example-runs/tesla.json`](docs/example-runs/tesla.json).
 
-### [Second company — see below, captured live]
+### Zomato → **Watch** (default fallback) — a worst-case demonstration
+
+This one is included deliberately, not edited out, because it's a better
+proof of the graceful-degradation design than a second clean success would
+be. Two real, independent failures hit in the same run:
+
+1. **Finnhub returned a 403 on Zomato's profile lookup.** Finnhub's free
+   tier doesn't reliably cover NSE-listed (Indian exchange) companies the
+   way it covers US-listed ones — a real international-coverage gap in the
+   "public companies" data-source choice, not a code bug.
+2. **Gemini's actual account-level daily cap (20 requests/day) was hit.**
+   This was discovered live, the hard way: testing Tesla a few times that
+   same day, across *two different model IDs* (`gemini-flash-latest` →
+   resolves to `gemini-3.5-flash`, capped at 20/day; then the pinned
+   `gemini-2.5-flash`, *also* capped at 20/day on this account) burned
+   through the daily quota before Zomato's research nodes could run.
+
+With **zero** of the six Gemini calls succeeding and the ticker unresolved,
+the system still returned a clean, complete memo — verdict defaulted to
+`watch`, every section explicitly marked "Unavailable for this run," no
+crash, no hang, no 500. That's `safeNode` and the memo writer's fallback
+defaults doing exactly what they're for. Full raw output is in
+[`docs/example-runs/zomato.json`](docs/example-runs/zomato.json).
+
+**Practical implication for testing this yourself:** the free tier is
+genuinely ~3 full runs/day per Google account (6 calls/run ÷ 20/day). Don't
+read a quota error as the app being broken — it's the documented trade-off
+of staying on the free tier. A paid Gemini key (pennies per run) removes
+this ceiling entirely if you want to test more than a couple of companies
+in one sitting.
 
 ## What I would improve with more time
 
@@ -238,6 +272,14 @@ whole request failing. Full raw output (errors included) is in
   competitive-landscape research that's already being fetched.
 - **Shareable/exportable memo** (copy link or PDF) so a result can be
   revisited or forwarded, reusing the existing cache layer.
+- **Better non-US exchange coverage.** Finnhub's free tier 403'd on
+  Zomato's NSE listing — a paid Finnhub tier or a secondary fallback data
+  source (e.g. Yahoo Finance's unofficial API) would close this gap for
+  Indian and other non-US-listed companies specifically.
+- **A paid Gemini key, or a second LLM provider as fallback,** once this
+  goes beyond personal demoing — the 20 requests/day account cap discovered
+  during testing (see Zomato example) is the single biggest real constraint
+  on this project's usability as built.
 
 ## Bonus: LLM chat transcript
 

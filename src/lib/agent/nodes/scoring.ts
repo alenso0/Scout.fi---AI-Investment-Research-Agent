@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
-import { invokeFlashStructured } from "../../clients/gemini";
+import { invokeFlashStructured } from "../../clients/llm";
 import { safeNode } from "../util";
 import { RubricDimensionSchema, type RubricDimension, type Verdict, type ScoutState } from "../state";
 

@@ -1,5 +1,5 @@
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
-import { invokeFlash } from "../../clients/gemini";
+import { invokeFlash } from "../../clients/llm";
 import { safeNode } from "../util";
 import type { ScoutState } from "../state";
 
