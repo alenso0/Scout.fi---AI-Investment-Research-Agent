@@ -40,6 +40,7 @@ export const financialsNode = safeNode(
     );
 
     const section = await synthesizeSection({
+      companyName: entity.name,
       systemPrompt:
         "You are a financial analyst writing the 'Financial Health' section of an investment memo. Summarize the key metrics for a reader deciding whether to invest.",
       context: `Company: ${entity.name} (${entity.ticker})\nMetrics:\n${JSON.stringify(relevant, null, 2)}`,

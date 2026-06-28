@@ -13,6 +13,7 @@ export const newsNode = safeNode(
     });
 
     const section = await synthesizeSection({
+      companyName: name,
       systemPrompt:
         "You are a financial analyst writing the 'Recent News & Sentiment' section of an investment memo. Note the overall tone (positive/negative/mixed) and call out anything material.",
       context: results

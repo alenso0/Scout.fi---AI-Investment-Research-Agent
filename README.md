@@ -21,23 +21,26 @@ It only covers **public, ticker-bearing companies** by design (see
 
 ## How to run it
 
-**Requirements:** Node 18+, and three free API keys.
+**Requirements:** Node 18+, and four free API keys.
 
 1. **Install dependencies**
    ```bash
    npm install
    ```
 
-2. **Get three free API keys** and put them in a `.env` (or `.env.local`)
+2. **Get four free API keys** and put them in a `.env` (or `.env.local`)
    file in the project root:
 
    ```
    GOOGLE_API_KEY=
+   GROQ_API_KEY=
    FINNHUB_API_KEY=
    TAVILY_API_KEY=
    ```
 
    - **Gemini** — https://aistudio.google.com/apikey (Google AI Studio, free tier)
+   - **Groq** — https://console.groq.com/keys (free, no billing required —
+     automatic fallback LLM when Gemini is rate-limited; see below)
    - **Finnhub** — https://finnhub.io/register (free tier, ~60 calls/min)
    - **Tavily** — https://app.tavily.com/sign-up (free tier, 1,000 searches/month)
 
@@ -48,13 +51,13 @@ It only covers **public, ticker-bearing companies** by design (see
    Open http://localhost:3000, type a company name (e.g. `Tesla`), hit
    Research.
 
-   **A run can take 15 seconds to a few minutes**, and **the free tier is
-   good for roughly 3 full runs per day** on one Google account (measured
-   live — see [Example runs](#example-runs)). The app retries through
-   rate limits automatically rather than failing outright, so waiting,
-   not erroring, is the expected slow-path behavior; the live progress
-   steps tell you what's happening throughout. If you hit the daily cap,
-   either wait for the Pacific-time reset or use a billed key (pennies/run).
+   **A run typically takes 15-30 seconds.** Gemini's free tier on this
+   account caps at 20 requests/day (measured live — see
+   [Example runs](#example-runs)); once that's hit, every Gemini call fails
+   identically regardless of which Gemini model is used. Rather than
+   waiting out a quota that won't reset for hours, the app falls back to
+   Groq automatically on any Gemini failure, so a run stays fast and
+   working instead of stalling.
 
 4. **Deploy (optional, bonus points):**
    ```bash
@@ -62,7 +65,7 @@ It only covers **public, ticker-bearing companies** by design (see
    vercel login
    vercel
    ```
-   Then add the same three env vars in the Vercel dashboard
+   Then add the same four env vars in the Vercel dashboard
    (Project → Settings → Environment Variables) and run `vercel --prod`.
 
 ## How it works
@@ -125,8 +128,10 @@ per-dimension bars and rationale, not just the final label.
   with Server-Sent Events for live progress streaming.
 - **AI orchestration:** LangGraph.js (`@langchain/langgraph`) + LangChain.js
   tool/message plumbing.
-- **LLM:** Google Gemini, via `@langchain/google-genai`, **pinned to
-  `gemini-2.5-flash`** (see trade-offs below).
+- **LLM:** Google Gemini (`gemini-2.5-flash`, via `@langchain/google-genai`)
+  as primary, with Groq (`llama-3.3-70b-versatile`, via `@langchain/groq`)
+  as an automatic fallback when Gemini is rate-limited or quota-exhausted
+  (see trade-offs below).
 - **Data sources:** Finnhub (financials, peers, company profile), Tavily
   (web search/grounding for news, competitive context, risk signals),
   Clearbit's free logo API (company logos).
@@ -150,20 +155,22 @@ per-dimension bars and rationale, not just the final label.
 - **`gemini-2.5-flash`, not `gemini-flash-latest`.** Caught by actually
   running the pipeline, not by reading docs: the `-latest` alias resolved to
   `gemini-3.5-flash`, a preview model with a 5 RPM ceiling. Switching to the
-  established `gemini-2.5-flash` model fixed the per-minute throttling.
-  Lesson learned the hard way, though: **this Google account's free tier
-  caps at a flat 20 requests/day, and that cap turned out to apply to both
-  models** — switching models bought a fresh per-minute budget, not a fresh
-  daily one. See the Zomato example below for what that looks like in
-  practice. Alias model IDs are still a footgun (you don't know which model
-  you're actually quota-limited against until you read the error), but the
-  daily cap is the bigger real constraint to plan around on this stack.
+  established `gemini-2.5-flash` model fixed the per-minute throttling —
+  but **this Google account's free tier turned out to cap at a flat 20
+  requests/day, and that cap applies identically across every Gemini model
+  tried.** Switching models bought a fresh per-minute budget, not a fresh
+  daily one. See the Zomato example below for what that looks like live.
 
-- **Retry-with-backoff around every Gemini call** (`src/lib/clients/gemini.ts`),
-  parsing the `retryDelay` hint Google's 429 response actually returns,
-  rather than guessing. LangChain's own internal retries are disabled
-  (`maxRetries: 0`) so they don't compound with this explicit retry —
-  nested retry logic was producing multi-minute hangs before that fix.
+- **Groq as an automatic fallback LLM** (`src/lib/clients/llm.ts`), wired in
+  with LangChain's `.withFallbacks()` once the daily-cap discovery above
+  made it clear that waiting out a Gemini quota mid-run wasn't a viable
+  fix — there's nothing to wait *for* until the next Pacific-time reset.
+  Every call tries Gemini first; on any failure (rate limit, quota, a
+  transient 503), it falls straight to Groq's `llama-3.3-70b-versatile`
+  instead of retrying the same exhausted quota. This both fixed today's
+  testing wall and made the product itself more resilient than a
+  single-provider design — a free account hitting its daily cap mid-run
+  no longer means the run stalls or fails.
 
 - **One-line thesis is generated inside the scoring call**, not a separate
   Gemini call in the memo writer. Originally the memo writer made its own
@@ -217,36 +224,48 @@ conservatively and bear case fell back to unavailable, rather than the
 whole request failing. Full raw output (errors included) is in
 [`docs/example-runs/tesla.json`](docs/example-runs/tesla.json).
 
-### Zomato → **Watch** (default fallback) — a worst-case demonstration
+### Zomato → **Invest** (composite score 3.8/5) — and the two real bugs it surfaced
 
-This one is included deliberately, not edited out, because it's a better
-proof of the graceful-degradation design than a second clean success would
-be. Two real, independent failures hit in the same run:
+This example is included for the iteration story as much as the result —
+three live runs, two real bugs found and fixed in between, kept rather than
+quietly smoothed over:
 
-1. **Finnhub returned a 403 on Zomato's profile lookup.** Finnhub's free
-   tier doesn't reliably cover NSE-listed (Indian exchange) companies the
-   way it covers US-listed ones — a real international-coverage gap in the
-   "public companies" data-source choice, not a code bug.
-2. **Gemini's actual account-level daily cap (20 requests/day) was hit.**
-   This was discovered live, the hard way: testing Tesla a few times that
-   same day, across *two different model IDs* (`gemini-flash-latest` →
-   resolves to `gemini-3.5-flash`, capped at 20/day; then the pinned
-   `gemini-2.5-flash`, *also* capped at 20/day on this account) burned
-   through the daily quota before Zomato's research nodes could run.
+**Run 1 (total failure):** Finnhub returned a 403 on Zomato's profile
+lookup — its free tier doesn't reliably cover NSE-listed (Indian exchange)
+companies the way it covers US-listed ones, a real international-coverage
+gap, not a code bug. Simultaneously, Gemini's account-level daily cap (20
+requests/day, hit earlier that day testing Tesla across two different
+model IDs) meant **zero** of the six Gemini calls succeeded either. The
+system still returned a clean, complete memo — verdict defaulted to
+`watch`, every section marked "Unavailable for this run," no crash, no
+hang. That run is exactly what motivated adding the Groq fallback.
 
-With **zero** of the six Gemini calls succeeding and the ticker unresolved,
-the system still returned a clean, complete memo — verdict defaulted to
-`watch`, every section explicitly marked "Unavailable for this run," no
-crash, no hang, no 500. That's `safeNode` and the memo writer's fallback
-defaults doing exactly what they're for. Full raw output is in
-[`docs/example-runs/zomato.json`](docs/example-runs/zomato.json).
+**Run 2 (Groq fallback added, ~7s):** same Zomato request, now failing
+over to Groq on every Gemini call instead of stalling on the dead daily
+quota. It produced a full memo — but inspecting it surfaced a second real
+bug: the **news** and **risk** sections summarized completely unrelated
+search results (a Peabody Energy lawsuit, a Taco Bell parking-lot story,
+Tesla FSD news) as if they were findings about Zomato, because the
+grounding instruction said "don't make unsupported claims" but never said
+"discard sources that aren't actually about the company." Tavily's search
+noise was being summarized as signal.
 
-**Practical implication for testing this yourself:** the free tier is
-genuinely ~3 full runs/day per Google account (6 calls/run ÷ 20/day). Don't
-read a quota error as the app being broken — it's the documented trade-off
-of staying on the free tier. A paid Gemini key (pennies per run) removes
-this ceiling entirely if you want to test more than a couple of companies
-in one sitting.
+**Run 3 (grounding prompt tightened, ~7s):** same request, after adding an
+explicit instruction to discard off-topic sources and say so plainly
+instead of summarizing them. Same noisy Tavily results, very different
+output — **news** and **risk** now correctly read *"No relevant
+information was found about Zomato in the provided sources... none of
+these sources mention Zomato."* **competitive**, whose search results were
+actually on-topic, still produced a real summary (56% Indian food-delivery
+market share, Swiggy as the closest competitor, Blinkit's quick-commerce
+expansion). Verdict: **Invest**, 3.8/5, with financial health and risk
+both scored conservatively (3/5) precisely because that data was genuinely
+unavailable, not guessed at.
+
+Full raw output for all three stages — the failure, the fallback, and the
+grounding fix — is in
+[`docs/example-runs/zomato.json`](docs/example-runs/zomato.json) (final
+state) and the chat transcript (full history).
 
 ## What I would improve with more time
 
@@ -276,10 +295,21 @@ in one sitting.
   Zomato's NSE listing — a paid Finnhub tier or a secondary fallback data
   source (e.g. Yahoo Finance's unofficial API) would close this gap for
   Indian and other non-US-listed companies specifically.
-- **A paid Gemini key, or a second LLM provider as fallback,** once this
-  goes beyond personal demoing — the 20 requests/day account cap discovered
-  during testing (see Zomato example) is the single biggest real constraint
-  on this project's usability as built.
+- **A third LLM provider, or retry logic within Groq itself.** The current
+  fallback chain is Gemini → Groq, one level deep. If Groq also has a
+  transient issue (or its own free-tier limits, under heavier use), there's
+  currently no second fallback — the section just degrades, same as before
+  the fallback existed.
+- **Surface which provider actually answered.** Right now a Groq-served
+  section looks identical to a Gemini-served one in the UI. A small
+  "via Groq fallback" tag would make the resilience visible instead of
+  invisible.
+- **Drop citations when a section finds nothing relevant.** When the
+  grounding fix correctly says "no relevant information found" (see the
+  Zomato news/risk sections), the citations array still lists the
+  irrelevant sources that were searched but discarded — a minor but real
+  inconsistency between what the summary says and what the UI displays
+  underneath it.
 
 ## Bonus: LLM chat transcript
 

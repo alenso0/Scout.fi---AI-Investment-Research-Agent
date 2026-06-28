@@ -13,6 +13,7 @@ export const riskNode = safeNode(
     );
 
     const section = await synthesizeSection({
+      companyName: name,
       systemPrompt:
         "You are a financial analyst writing the 'Risk Factors' section of an investment memo. Surface litigation, regulatory, leadership, or balance-sheet risks. If nothing material turns up, say so plainly rather than inventing risk.",
       context: results

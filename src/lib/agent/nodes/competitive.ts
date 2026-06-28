@@ -33,6 +33,7 @@ export const competitiveNode = safeNode(
       .join("\n\n");
 
     const section = await synthesizeSection({
+      companyName: name,
       systemPrompt:
         "You are a financial analyst writing the 'Competitive Landscape' section of an investment memo. Identify the company's main competitors and assess its market position/moat.",
       context,

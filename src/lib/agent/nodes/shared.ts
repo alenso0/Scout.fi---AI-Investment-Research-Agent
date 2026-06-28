@@ -8,6 +8,7 @@ export function toCitations(results: TavilySearchResult[]): Citation[] {
 }
 
 export async function synthesizeSection(opts: {
+  companyName: string;
   systemPrompt: string;
   context: string;
   citations: Citation[];
@@ -21,7 +22,13 @@ export async function synthesizeSection(opts: {
 
   const summary = await invokeFlash([
     new SystemMessage(
-      `${opts.systemPrompt}\n\nGround every sentence in the provided context. If the context doesn't support a claim, don't make it. Keep it to 3-5 sentences.`
+      [
+        opts.systemPrompt,
+        `Every source below was pulled from a search query about "${opts.companyName}", but search results are noisy — some may be about unrelated companies or topics that just matched on keywords.`,
+        `Only use sources that are actually about ${opts.companyName}. Silently ignore anything else — don't mention or summarize it.`,
+        `If none of the sources are actually relevant, say plainly that no relevant information was found rather than summarizing unrelated results.`,
+        "Ground every sentence in the sources you do use. Keep it to 3-5 sentences.",
+      ].join(" ")
     ),
     new HumanMessage(opts.context),
   ]);
